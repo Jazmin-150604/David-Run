@@ -124,8 +124,10 @@ function drawTree(tx,th){
 function drawBirdObstacle(o){
   let x=o.x, y=o.y;
   let wing = Math.sin(o.flap) * 11;
-  ctx.fillStyle='rgba(0,0,0,0.12)';
-  ctx.beginPath(); ctx.ellipse(x+26, groundY+4, 30, 5, 0, 0, Math.PI*2); ctx.fill();
+  // sombra dinámica que sigue al pájaro
+  let shadowScale = Math.max(0.2, 1 - (groundY - y) / 200);
+  ctx.fillStyle='rgba(0,0,0,0.10)';
+  ctx.beginPath(); ctx.ellipse(x+26, groundY+4, 30*shadowScale, 5*shadowScale, 0, 0, Math.PI*2); ctx.fill();
   ctx.strokeStyle='#1a1a2e'; ctx.lineWidth=4; ctx.lineCap='round';
   ctx.beginPath(); ctx.moveTo(x+26,y+10); ctx.quadraticCurveTo(x+10,y+10-wing,x-2,y+10); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(x+26,y+10); ctx.quadraticCurveTo(x+42,y+10-wing,x+54,y+10); ctx.stroke();
@@ -148,10 +150,6 @@ function drawBirdObstacle(o){
   ctx.beginPath(); ctx.moveTo(x+20,y+30); ctx.lineTo(x+22,y+35); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(x+32,y+30); ctx.lineTo(x+28,y+34); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(x+32,y+30); ctx.lineTo(x+34,y+35); ctx.stroke();
-  ctx.fillStyle='rgba(231,76,60,0.9)';
-  ctx.beginPath(); ctx.roundRect(x+4, y-22, 68, 16, 4); ctx.fill();
-  ctx.fillStyle='#fff'; ctx.font='bold 11px Courier New';
-  ctx.fillText('⬇ AGÁCHATE', x+6, y-10);
 }
 
 function drawDavid(){
@@ -278,7 +276,6 @@ function drawSign(o){
   ctx.fillStyle='#006AA7'; ctx.fillRect(x+0,y+0,40,32);
   ctx.fillStyle='#FECC02'; ctx.fillRect(x+0,y+12,40,9); ctx.fillRect(x+13,y+0,9,32);
   ctx.strokeStyle='#004a7a'; ctx.lineWidth=1.5; ctx.strokeRect(x+0,y+0,40,32);
-  ctx.fillStyle='#FECC02'; ctx.font='bold 7px Courier New'; ctx.fillText('SVERIGE',x+1,y+48);
 }
 function drawLog(o){
   ctx.fillStyle='#7a4f2e'; ctx.fillRect(o.x,o.y,48,26);
@@ -297,13 +294,46 @@ function drawObstacle(o){
 
 function spawnObstacle(){
   let roll = Math.random();
+  // A partir de score 300 pueden aparecer pares de pájaros
   let type = roll < 0.30 ? 'bird' : roll < 0.55 ? 'moose' : roll < 0.77 ? 'log' : 'sign';
-  let o = { type, x: W+20, flap:0, flapSpeed: 0.18+Math.random()*0.1 };
-  if(type==='bird'){ o.y=groundY-95; o.w=65; o.h=40; }
+  let o = { type, x: W+20, flap:0, flapSpeed: 0.22+Math.random()*0.14 };
+
+  if(type==='bird'){
+    // Altura baja: justo donde David DEBE agacharse para esquivar
+    // david parado mide 62px, su cabeza está en groundY-62
+    // ponemos el pájaro entre groundY-58 y groundY-42 para obligar a agacharse
+    let birdMode = Math.random();
+    if(birdMode < 0.45){
+      // RECTO a baja altura — el más peligroso, hay que agacharse sí o sí
+      o.baseY = groundY - 52 - Math.random()*10;
+      o.zigzag = false;
+    } else if(birdMode < 0.80){
+      // ZIG-ZAG a media altura
+      o.baseY = groundY - 62 - Math.random()*15;
+      o.zigzag = true;
+      o.zigzagAmp = 20 + Math.random() * 18;
+      o.zigzagSpeed = 0.05 + Math.random() * 0.04;
+      o.zigzagOffset = Math.random() * Math.PI * 2;
+    } else {
+      // PICADA: empieza alto y baja rápido hacia David
+      o.baseY = groundY - 120;
+      o.zigzag = false;
+      o.diving = true;
+      o.diveSpeed = 1.2 + Math.random() * 0.8;
+      o.diveTarget = groundY - 50;
+    }
+    o.y = o.baseY;
+    o.w = 65; o.h = 40;
+  }
   else if(type==='moose'){ o.y=groundY-64; o.w=58; o.h=64; }
   else if(type==='sign'){ o.y=groundY-60; o.w=40; o.h=60; }
   else { o.y=groundY-26; o.w=48; o.h=26; }
   obstacles.push(o);
+
+  // Obstáculos dobles solo a partir de score 1000 y poco frecuentes
+  if(score > 1000 && Math.random() < 0.10){
+    setTimeout(()=>{ if(gameState==='running') spawnObstacle(); }, 700);
+  }
 }
 
 function collides(a,b){
@@ -327,6 +357,18 @@ function emitHit(x,y){
 function jump(){ if(!david.jumping && gameState==='running'){ david.vy=-16; david.jumping=true; } }
 function duck(on){ if(gameState==='running') david.crouching=on; }
 function updateLives(){ livesEl.textContent='❤️'.repeat(lives)+'🖤'.repeat(Math.max(0,3-lives)); }
+
+let warningMsg='', warningTimer=0;
+function showWarning(msg){ warningMsg=msg; warningTimer=120; }
+function drawWarning(){
+  if(warningTimer<=0) return;
+  let alpha = Math.min(1, warningTimer/20);
+  ctx.globalAlpha=alpha;
+  ctx.fillStyle='#f4d03f'; ctx.font='bold 20px Courier New'; ctx.textAlign='center';
+  ctx.fillText(warningMsg, W/2, 60);
+  ctx.textAlign='left'; ctx.globalAlpha=1;
+  warningTimer--;
+}
 
 function drawHUD(){
   ctx.fillStyle='rgba(0,0,0,0.35)'; ctx.fillRect(4,4,140,30);
@@ -384,9 +426,25 @@ function gameLoop(){
 
     obstTimer++;
     if(obstTimer>=obstInterval){ spawnObstacle(); obstTimer=0; obstInterval=Math.max(50,obstInterval-.5); }
-    speed=Math.min(11,5+frame/500);
+    speed = Math.min(14, 5 + frame/600);
+    // velocidad sube suave hasta 14, luego oscila entre 11 y 14
+    if(frame > 3000){
+      speed = 11 + 3 * Math.abs(Math.sin(frame / 1800));
+    }
 
-    obstacles.forEach(o=>{ o.x-=speed; if(o.type==='bird') o.flap+=o.flapSpeed; });
+    obstacles.forEach(o=>{
+      let moveSpeed = o.type==='bird' ? speed * 1.35 : speed;
+      o.x -= moveSpeed;
+      if(o.type==='bird'){
+        o.flap += o.flapSpeed;
+        if(o.zigzag){
+          o.zigzagOffset += o.zigzagSpeed;
+          o.y = o.baseY + Math.sin(o.zigzagOffset) * o.zigzagAmp;
+        } else if(o.diving){
+          if(o.y < o.diveTarget) o.y += o.diveSpeed;
+        }
+      }
+    });
     obstacles=obstacles.filter(o=>o.x>-140);
 
     if(david.hitTimer===0){
